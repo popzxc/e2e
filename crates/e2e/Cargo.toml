@@ -1,0 +1,20 @@
+[package]
+name = "e2e"
+description = "Test framework for stateful integration tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+e2e-macro.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

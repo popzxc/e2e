@@ -1,0 +1,28 @@
+[workspace]
+members = ["crates/e2e", "crates/e2e-macro"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+authors = ["Igor Aleksanov <popzxc@yandex.ru>"]
+homepage = "https://github.com/popzxc/e2e"
+repository = "https://github.com/popzxc/e2e"
+license = "MIT OR Apache-2.0"
+keywords = ["test", "framework", "e2e"]
+categories = ["development-tools"]
+
+[workspace.dependencies]
+anyhow = "1.0.98"
+async-trait = "0.1.88"
+thiserror = "2.0.12"
+
+# Proc macro dependencies
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+
+# Local deps
+e2e-macro = { path = "crates/e2e-macro" }
+
+# Dev deps
+tokio = { version = "1", features = ["full"] }
