@@ -2,7 +2,7 @@
 members = ["crates/e2e", "crates/e2e-macro"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 authors = ["Igor Aleksanov <popzxc@yandex.ru>"]
 homepage = "https://github.com/popzxc/e2e"
@@ -23,7 +23,7 @@ quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
 
 # Local deps
-e2e-macro = { path = "crates/e2e-macro" }
+e2e-macro = { version = "0.1.0", path = "crates/e2e-macro" }
 
 # Dev deps
 tokio = { version = "1", features = ["full"] }
