@@ -2,6 +2,38 @@ use std::fmt;
 
 pub use e2e_macro::test_suite;
 
+struct TracingReporter;
+
+impl TracingReporter {
+    pub fn on_test_suite_creation_started(name: &str) {
+        tracing::debug!("Creating test suite: {}", name);
+    }
+
+    pub fn on_test_suite_creation_finished(name: &str) {
+        tracing::debug!("Test suite created: {}", name);
+    }
+
+    pub fn on_test_suite_start(name: &str) {
+        tracing::info!("Starting test suite: {}", name);
+    }
+
+    pub fn on_test_suite_end(name: &str) {
+        tracing::info!("Finished test suite: {}", name);
+    }
+
+    pub fn on_test_start(name: &str) {
+        tracing::info!("Running: {}", name);
+    }
+
+    pub fn on_test_end(name: &str) {
+        tracing::info!("✅: {}", name);
+    }
+
+    pub fn on_error(err: &TestError) {
+        tracing::error!("❌: {}", err);
+    }
+}
+
 #[derive(Debug)]
 pub struct Tester<C: std::fmt::Debug + 'static> {
     /// Configuration for the tester.
@@ -23,30 +55,48 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
     }
 
     pub async fn run(self) -> Result<(), TestError> {
-        for suite in self.test_suites {
-            let name = suite.name();
-            // tracing::debug!("Creating test suite: {}", name);
-            let Ok(suite) = suite.create_suite(&self.config).await else {
-                // tracing::error!("Failed to create test suite: {}", suite.name());
-                continue;
+        for factory in self.test_suites {
+            let name = factory.name();
+            TracingReporter::on_test_suite_creation_started(&name);
+            let suite = match factory
+                .create_suite(&self.config)
+                .await
+                .map_err(TestError::CreateSuite)
+            {
+                Ok(suite) => suite,
+                Err(err) => {
+                    TracingReporter::on_error(&err);
+                    continue;
+                }
             };
-            Self::run_suite(suite).await?;
-            // tracing::debug!("Finished test suite: {}", name);
+            TracingReporter::on_test_suite_creation_finished(&name);
+
+            TracingReporter::on_test_suite_start(&name);
+            if let Err(err) = Self::run_suite(suite).await {
+                TracingReporter::on_error(&err);
+            }
+            TracingReporter::on_test_suite_end(&name);
         }
+
         Ok(())
     }
 
     async fn run_suite(suite: Box<dyn TestSuite>) -> Result<(), TestError> {
-        // tracing::debug!("Running test suite: {}", suite.name());
-
         suite.before_all().await.map_err(TestError::BeforeAll)?;
 
         for test in suite.tests() {
-            // tracing::info!("Running test: {}", test.name());
             suite.before_each().await.map_err(TestError::BeforeEach)?;
-            test.run().await.map_err(TestError::Test)?;
+            TracingReporter::on_test_start(&test.name());
+            if let Err(err) = test
+                .run()
+                .await
+                .map_err(|err| TestError::Test(test.name(), err))
+            {
+                TracingReporter::on_error(&err);
+            } else {
+                TracingReporter::on_test_end(&test.name());
+            }
             suite.after_each().await.map_err(TestError::AfterEach)?;
-            // tracing::info!("Success");
         }
 
         suite.after_all().await.map_err(TestError::AfterAll)?;
@@ -57,6 +107,8 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum TestError {
+    #[error("Failed to create test suite: {0:?}")]
+    CreateSuite(anyhow::Error),
     #[error("Failed to run 'before_all' for the test suite: {0:?}")]
     BeforeAll(anyhow::Error),
     #[error("Failed to run 'before_each' the test suite: {0:?}")]
@@ -65,8 +117,8 @@ pub enum TestError {
     AfterEach(anyhow::Error),
     #[error("Failed to run 'after_all' the test suite: {0:?}")]
     AfterAll(anyhow::Error),
-    #[error("Test failed: {0:?}")]
-    Test(anyhow::Error),
+    #[error("Test {0} failed: {1:?}")]
+    Test(String, anyhow::Error),
 }
 
 #[async_trait::async_trait]
