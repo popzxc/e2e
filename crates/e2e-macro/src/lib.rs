@@ -41,6 +41,7 @@ fn test_suite_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     for item in &input.items {
         if let ImplItem::Fn(mut method) = item.clone() {
             let mut detected_item = None;
+            let mut ignore = false;
             method.attrs.retain(|attr| {
                 let ident = attr.meta.path().get_ident();
                 if let Some(ident) = ident {
@@ -76,12 +77,23 @@ fn test_suite_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                             }
                             return false;
                         }
+                        "ignore" => {
+                            ignore = true;
+                            return false;
+                        }
                         _ => {}
                     }
                 }
                 true
             });
             cleaned_items.push(ImplItem::Fn(method.clone()));
+
+            if ignore {
+                assert!(
+                    matches!(detected_item, Some(DetectedItem::TestCase(_))),
+                    "The `ignore` attribute can only be used with `test_case` methods"
+                );
+            }
 
             match detected_item {
                 Some(DetectedItem::Constructor) => {
@@ -115,7 +127,7 @@ fn test_suite_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                     after_all = Some(method);
                 }
                 Some(DetectedItem::TestCase(name)) => {
-                    test_cases.push((name, method));
+                    test_cases.push((name, method, ignore));
                 }
                 None => {}
             }
@@ -195,7 +207,7 @@ fn test_suite_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut test_case_code = Vec::new();
     let mut test_case_objects = Vec::new();
-    for (id, (name, method)) in test_cases.into_iter().enumerate() {
+    for (id, (name, method, ignore)) in test_cases.into_iter().enumerate() {
         let test_fn_name = &method.sig.ident;
 
         let test_ty_name = quote::format_ident!("{}Test{}", struct_ty_name, id);
@@ -210,6 +222,10 @@ fn test_suite_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 async fn run(&self) -> anyhow::Result<()> {
                     self.0.#test_fn_name().await
+                }
+
+                fn ignore(&self) -> bool {
+                    #ignore
                 }
             }
         };

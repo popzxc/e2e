@@ -1,38 +1,10 @@
 use std::fmt;
 
+pub use self::reporter::{Reporter, console::ConsoleReporter};
+/// Procedural macro for defining test suites.
 pub use e2e_macro::test_suite;
 
-struct TracingReporter;
-
-impl TracingReporter {
-    pub fn on_test_suite_creation_started(name: &str) {
-        tracing::debug!("Creating test suite: {}", name);
-    }
-
-    pub fn on_test_suite_creation_finished(name: &str) {
-        tracing::debug!("Test suite created: {}", name);
-    }
-
-    pub fn on_test_suite_start(name: &str) {
-        tracing::info!("Starting test suite: {}", name);
-    }
-
-    pub fn on_test_suite_end(name: &str) {
-        tracing::info!("Finished test suite: {}", name);
-    }
-
-    pub fn on_test_start(name: &str) {
-        tracing::info!("Running: {}", name);
-    }
-
-    pub fn on_test_end(name: &str) {
-        tracing::info!("✅: {}", name);
-    }
-
-    pub fn on_error(err: &TestError) {
-        tracing::error!("❌: {}", err);
-    }
-}
+mod reporter;
 
 #[derive(Debug)]
 pub struct Tester<C: std::fmt::Debug + 'static> {
@@ -40,6 +12,8 @@ pub struct Tester<C: std::fmt::Debug + 'static> {
     config: C,
     /// List of test suites to run.
     test_suites: Vec<Box<dyn TestSuiteFactory<C>>>,
+    /// Reporter for test events.
+    reporter: Box<dyn Reporter>,
 }
 
 impl<C: std::fmt::Debug + 'static> Tester<C> {
@@ -47,6 +21,7 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
         Self {
             config,
             test_suites: Vec::new(),
+            reporter: Box::new(ConsoleReporter::new()),
         }
     }
 
@@ -55,9 +30,9 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
     }
 
     pub async fn run(self) -> Result<(), TestError> {
-        for factory in self.test_suites {
+        for factory in &self.test_suites {
             let name = factory.name();
-            TracingReporter::on_test_suite_creation_started(&name);
+            self.reporter.on_test_suite_creation_started(&name);
             let suite = match factory
                 .create_suite(&self.config)
                 .await
@@ -65,36 +40,41 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
             {
                 Ok(suite) => suite,
                 Err(err) => {
-                    TracingReporter::on_error(&err);
+                    self.reporter.on_error(&err);
                     continue;
                 }
             };
-            TracingReporter::on_test_suite_creation_finished(&name);
+            self.reporter.on_test_suite_creation_finished(&name);
 
-            TracingReporter::on_test_suite_start(&name);
-            if let Err(err) = Self::run_suite(suite).await {
-                TracingReporter::on_error(&err);
+            self.reporter.on_test_suite_start(&name);
+            if let Err(err) = self.run_suite(suite).await {
+                self.reporter.on_error(&err);
             }
-            TracingReporter::on_test_suite_end(&name);
+            self.reporter.on_test_suite_end(&name);
         }
 
         Ok(())
     }
 
-    async fn run_suite(suite: Box<dyn TestSuite>) -> Result<(), TestError> {
+    async fn run_suite(&self, suite: Box<dyn TestSuite>) -> Result<(), TestError> {
         suite.before_all().await.map_err(TestError::BeforeAll)?;
 
         for test in suite.tests() {
+            if test.ignore() {
+                self.reporter.on_test_ignored(&test.name());
+                continue;
+            }
+
             suite.before_each().await.map_err(TestError::BeforeEach)?;
-            TracingReporter::on_test_start(&test.name());
+            self.reporter.on_test_start(&test.name());
             if let Err(err) = test
                 .run()
                 .await
                 .map_err(|err| TestError::Test(test.name(), err))
             {
-                TracingReporter::on_error(&err);
+                self.reporter.on_error(&err);
             } else {
-                TracingReporter::on_test_end(&test.name());
+                self.reporter.on_test_end(&test.name());
             }
             suite.after_each().await.map_err(TestError::AfterEach)?;
         }
@@ -158,7 +138,7 @@ pub trait TestSuite: Send + Sync + 'static {
     }
 }
 
-impl fmt::Debug for Box<dyn TestSuite> {
+impl fmt::Debug for dyn TestSuite {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
     }
@@ -168,9 +148,12 @@ impl fmt::Debug for Box<dyn TestSuite> {
 pub trait Test: Send + Sync + 'static {
     fn name(&self) -> String;
     async fn run(&self) -> anyhow::Result<()>;
+    fn ignore(&self) -> bool {
+        false
+    }
 }
 
-impl fmt::Debug for Box<dyn Test> {
+impl fmt::Debug for dyn Test {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
     }

@@ -48,6 +48,7 @@ impl TestFlow {
     }
 
     #[test_case("Test case 2")]
+    #[ignore]
     async fn test_case_2(&self) -> anyhow::Result<()> {
         assert!(self.value > 0);
         Ok(())
@@ -56,11 +57,6 @@ impl TestFlow {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("00_basic=info,e2e=info")
-        .without_time()
-        .init();
-
     let config = TestConfig { value: 42 };
     let mut tester = e2e::Tester::new(config);
     tester.add_suite(TestFlow::factory());
