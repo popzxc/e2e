@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/e2e", "crates/e2e-macro"]
+resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
@@ -16,6 +17,7 @@ anyhow = "1.0.98"
 async-trait = "0.1.88"
 thiserror = "2.0.12"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 # Proc macro dependencies
 proc-macro2 = "1.0"
