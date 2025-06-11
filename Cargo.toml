@@ -3,7 +3,7 @@ members = ["crates/e2e", "crates/e2e-macro"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Igor Aleksanov <popzxc@yandex.ru>"]
 homepage = "https://github.com/popzxc/e2e"
