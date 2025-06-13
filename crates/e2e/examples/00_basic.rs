@@ -47,8 +47,7 @@ impl TestFlow {
         Ok(())
     }
 
-    #[test_case("Test case 2")]
-    #[ignore]
+    #[test_case("Test case 2", ignore)]
     async fn test_case_2(&self) -> anyhow::Result<()> {
         assert!(self.value > 0);
         Ok(())

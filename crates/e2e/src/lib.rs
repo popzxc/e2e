@@ -151,6 +151,10 @@ pub trait Test: Send + Sync + 'static {
     fn ignore(&self) -> bool {
         false
     }
+
+    fn only(&self) -> bool {
+        false
+    }
 }
 
 impl fmt::Debug for dyn Test {

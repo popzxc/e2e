@@ -118,40 +118,10 @@ impl TestSuite {
         let test_cases = &self.test_cases;
         let mut test_case_code = Vec::new();
         let mut test_case_objects = Vec::new();
-        for (
-            id,
-            TestCase {
-                name,
-                method,
-                ignore,
-            },
-        ) in test_cases.iter().enumerate()
-        {
-            let test_fn_name = &method.sig.ident;
-
-            let test_ty_name = quote::format_ident!("{}Test{}", struct_ty_name, id);
-            let test_case = quote! {
-                struct #test_ty_name(#struct_ty_name);
-
-                #[#crate_name::__private_reexports::async_trait]
-                impl #crate_name::Test for #test_ty_name {
-                    fn name(&self) -> String {
-                        #name.to_string()
-                    }
-
-                    async fn run(&self) -> anyhow::Result<()> {
-                        self.0.#test_fn_name().await
-                    }
-
-                    fn ignore(&self) -> bool {
-                        #ignore
-                    }
-                }
-            };
+        for test_case in test_cases.iter() {
+            let (test_case, test_object) = test_case.render(struct_ty_name, crate_name);
             test_case_code.push(test_case);
-            test_case_objects.push(quote! {
-                Box::new(#test_ty_name(self.clone()))
-            });
+            test_case_objects.push(test_object);
         }
 
         (test_case_code, test_case_objects)
@@ -181,7 +151,6 @@ impl TestSuite {
                     #suite_name.to_string()
                 }
 
-                /// Creates a new test suite instance.
                 async fn create_suite(&self, config: &#config_ty_name) -> anyhow::Result<Box<dyn #crate_name::TestSuite>> {
                     let self_ = #struct_ty_name::#constructor_fn_name(config).await?;
                     Ok(Box::new(self_))
