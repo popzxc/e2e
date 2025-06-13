@@ -1,6 +1,6 @@
 use console::Term;
 
-use crate::reporter::Reporter;
+use crate::{TestError, reporter::Reporter};
 
 #[derive(Debug)]
 pub struct ConsoleReporter {
@@ -32,11 +32,23 @@ impl Reporter for ConsoleReporter {
             .unwrap();
     }
 
-    fn on_test_suite_creation_finished(&self, name: &str) {
+    fn on_test_suite_creation_finished(&self, name: &str, error: Option<&TestError>) {
         self.term.clear_last_lines(1).unwrap();
-        self.term
-            .write_line(&format!("✅ Test suite created: {name} "))
-            .unwrap();
+        match error {
+            Some(err) => {
+                self.term
+                    .write_line(&format!(
+                        "❌ Error creating test suite: {name} (error: {})",
+                        err
+                    ))
+                    .unwrap();
+            }
+            None => {
+                self.term
+                    .write_line(&format!("✅ Test suite created: {name} "))
+                    .unwrap();
+            }
+        }
     }
 
     fn on_test_suite_start(&self, name: &str) {
@@ -46,7 +58,7 @@ impl Reporter for ConsoleReporter {
             .unwrap();
     }
 
-    fn on_test_suite_end(&self, _name: &str) {
+    fn on_test_suite_end(&self, _name: &str, _error: Option<&TestError>) {
         // Nothing to report
     }
 
@@ -60,13 +72,17 @@ impl Reporter for ConsoleReporter {
             .unwrap();
     }
 
-    fn on_test_end(&self, name: &str) {
+    fn on_test_end(&self, name: &str, error: Option<&TestError>) {
         self.term.clear_last_lines(1).unwrap();
-        self.term.write_line(&format!("  - ✅ {name}",)).unwrap();
-    }
-
-    fn on_error(&self, err: &crate::TestError) {
-        self.term.clear_last_lines(1).unwrap();
-        self.term.write_line(&format!("  - ❌ {}", err)).unwrap();
+        match error {
+            Some(err) => {
+                self.term
+                    .write_line(&format!("  - ❌ {name} (error: {})", err))
+                    .unwrap();
+            }
+            None => {
+                self.term.write_line(&format!("  - ✅ {name}",)).unwrap();
+            }
+        }
     }
 }

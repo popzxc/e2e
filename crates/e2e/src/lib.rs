@@ -1,10 +1,12 @@
-use std::fmt;
-
-pub use self::reporter::{Reporter, console::ConsoleReporter};
+pub use self::{
+    reporter::{Reporter, console::ConsoleReporter},
+    traits::{Test, TestSuite, TestSuiteFactory},
+};
 /// Procedural macro for defining test suites.
 pub use e2e_macro::test_suite;
 
 mod reporter;
+mod traits;
 
 #[derive(Debug)]
 pub struct Tester<C: std::fmt::Debug + 'static> {
@@ -33,24 +35,20 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
         for factory in &self.test_suites {
             let name = factory.name();
             self.reporter.on_test_suite_creation_started(&name);
-            let suite = match factory
+            let suite_result = factory
                 .create_suite(&self.config)
                 .await
-                .map_err(TestError::CreateSuite)
-            {
-                Ok(suite) => suite,
-                Err(err) => {
-                    self.reporter.on_error(&err);
-                    continue;
-                }
+                .map_err(TestError::CreateSuite);
+            self.reporter
+                .on_test_suite_creation_finished(&name, suite_result.as_ref().err());
+            let Ok(suite) = suite_result else {
+                continue; // Skip this suite if creation failed
             };
-            self.reporter.on_test_suite_creation_finished(&name);
 
             self.reporter.on_test_suite_start(&name);
-            if let Err(err) = self.run_suite(suite).await {
-                self.reporter.on_error(&err);
-            }
-            self.reporter.on_test_suite_end(&name);
+            let suite_run_result = self.run_suite(suite).await;
+            self.reporter
+                .on_test_suite_end(&name, suite_run_result.as_ref().err());
         }
 
         Ok(())
@@ -67,15 +65,14 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
 
             suite.before_each().await.map_err(TestError::BeforeEach)?;
             self.reporter.on_test_start(&test.name());
-            if let Err(err) = test
+            let test_result = test
                 .run()
                 .await
-                .map_err(|err| TestError::Test(test.name(), err))
-            {
-                self.reporter.on_error(&err);
-            } else {
-                self.reporter.on_test_end(&test.name());
-            }
+                .map_err(|err| TestError::Test(test.name(), err));
+
+            self.reporter
+                .on_test_end(&test.name(), test_result.as_ref().err());
+
             suite.after_each().await.map_err(TestError::AfterEach)?;
         }
 
@@ -99,68 +96,6 @@ pub enum TestError {
     AfterAll(anyhow::Error),
     #[error("Test {0} failed: {1:?}")]
     Test(String, anyhow::Error),
-}
-
-#[async_trait::async_trait]
-pub trait TestSuiteFactory<C>: Send + Sync + 'static {
-    fn name(&self) -> String;
-
-    /// Creates a new test suite instance.
-    async fn create_suite(&self, config: &C) -> anyhow::Result<Box<dyn TestSuite>>;
-}
-
-impl<C: std::fmt::Debug + 'static> fmt::Debug for Box<dyn TestSuiteFactory<C>> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
-    }
-}
-
-#[async_trait::async_trait]
-pub trait TestSuite: Send + Sync + 'static {
-    fn name(&self) -> String;
-
-    fn tests(&self) -> Vec<Box<dyn Test>>;
-
-    async fn before_all(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn before_each(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn after_each(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn after_all(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-impl fmt::Debug for dyn TestSuite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
-    }
-}
-
-#[async_trait::async_trait]
-pub trait Test: Send + Sync + 'static {
-    fn name(&self) -> String;
-    async fn run(&self) -> anyhow::Result<()>;
-    fn ignore(&self) -> bool {
-        false
-    }
-
-    fn only(&self) -> bool {
-        false
-    }
-}
-
-impl fmt::Debug for dyn Test {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
-    }
 }
 
 /// Re-exports for procedural macros.
