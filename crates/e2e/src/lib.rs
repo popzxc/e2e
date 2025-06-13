@@ -57,8 +57,11 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
     async fn run_suite(&self, suite: Box<dyn TestSuite>) -> Result<(), TestError> {
         suite.before_all().await.map_err(TestError::BeforeAll)?;
 
+        // Check if at least one test has `only` set to true.
+        let has_only = suite.tests().iter().any(|test| test.only());
+
         for test in suite.tests() {
-            if test.ignore() {
+            if test.ignore() || (has_only && !test.only()) {
                 self.reporter.on_test_ignored(&test.name());
                 continue;
             }
