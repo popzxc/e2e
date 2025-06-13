@@ -1,6 +1,6 @@
 use console::Term;
 
-use crate::{TestError, reporter::Reporter};
+use crate::{TestError, TestSuiteResult, reporter::Reporter};
 
 #[derive(Debug)]
 pub struct ConsoleReporter {
@@ -26,53 +26,76 @@ impl Reporter for ConsoleReporter {
         "ConsoleReporter"
     }
 
-    fn on_test_suite_creation_started(&self, name: &str) {
+    fn on_test_suite_creation_started(&mut self, name: &str) {
         self.term
-            .write_line(&format!("🔧 Creating test suite: {name}",))
+            .write_line(&format!("🔧  Creating test suite: {name}",))
             .unwrap();
     }
 
-    fn on_test_suite_creation_finished(&self, name: &str, error: Option<&TestError>) {
+    fn on_test_suite_creation_finished(&mut self, name: &str, error: Option<&TestError>) {
         self.term.clear_last_lines(1).unwrap();
         match error {
             Some(err) => {
                 self.term
                     .write_line(&format!(
-                        "❌ Error creating test suite: {name} (error: {})",
+                        "❌  Error creating test suite: {name} (error: {})",
                         err
                     ))
                     .unwrap();
             }
             None => {
                 self.term
-                    .write_line(&format!("✅ Test suite created: {name} "))
+                    .write_line(&format!("✅  Test suite created: {name} "))
                     .unwrap();
             }
         }
     }
 
-    fn on_test_suite_start(&self, name: &str) {
+    fn on_test_suite_start(&mut self, name: &str) {
         self.term.clear_last_lines(1).unwrap();
         self.term
-            .write_line(&format!("▶️ Starting test suite: {name} "))
+            .write_line(&format!("▶️  Starting test suite: {name} "))
             .unwrap();
     }
 
-    fn on_test_suite_end(&self, _name: &str, _error: Option<&TestError>) {
-        // Nothing to report
+    fn on_test_suite_end(&mut self, name: &str, result: &TestSuiteResult) {
+        if result.passed {
+            self.term
+                .write_line(&format!("✅ Test suite {name} passed",))
+                .unwrap();
+        } else {
+            self.term
+                .write_line(&format!("❌ Test suite {name} failed"))
+                .unwrap();
+            if let Some(error) = &result.error {
+                self.term
+                    .write_line(&format!("  - Error: {}", error))
+                    .unwrap();
+            }
+            if result.tests.iter().any(|test| !test.passed()) {
+                self.term.write_line("  - Failed tests:").unwrap();
+                for test in &result.tests {
+                    if let Some(err) = &test.error {
+                        self.term
+                            .write_line(&format!("    - {}: {}", test.name, err))
+                            .unwrap();
+                    }
+                }
+            }
+        }
     }
 
-    fn on_test_start(&self, name: &str) {
-        self.term.write_line(&format!("  - ▶️ {name}",)).unwrap();
+    fn on_test_start(&mut self, name: &str) {
+        self.term.write_line(&format!("  - ▶️  {name}",)).unwrap();
     }
 
-    fn on_test_ignored(&self, name: &str) {
+    fn on_test_ignored(&mut self, name: &str) {
         self.term
             .write_line(&format!("  - ⏭️  {name} (ignored)",))
             .unwrap();
     }
 
-    fn on_test_end(&self, name: &str, error: Option<&TestError>) {
+    fn on_test_end(&mut self, name: &str, error: Option<&TestError>) {
         self.term.clear_last_lines(1).unwrap();
         match error {
             Some(err) => {

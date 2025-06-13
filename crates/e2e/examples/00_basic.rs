@@ -52,10 +52,17 @@ impl TestFlow {
         assert!(self.value > 0);
         Ok(())
     }
+
+    #[test_case("Test case 3")]
+    async fn test_case_3(&self) -> anyhow::Result<()> {
+        panic!("Panics must be caught");
+    }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    e2e::init();
+
     let config = TestConfig { value: 42 };
     let mut tester = e2e::Tester::new(config);
     tester.add_suite(TestFlow::factory());
