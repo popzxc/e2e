@@ -17,6 +17,11 @@ impl TestFlow {
         Ok(Self { value: c.value })
     }
 
+    #[constructor("always 50")]
+    async fn always_50(_c: &TestConfig) -> anyhow::Result<Self> {
+        Ok(Self { value: 50 })
+    }
+
     #[before_each]
     async fn before_each(&self) -> anyhow::Result<()> {
         tracing::info!("before_each called");
@@ -65,7 +70,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config = TestConfig { value: 42 };
     let mut tester = e2e::Tester::new(config);
-    tester.add_suite(TestFlow::factory());
+    tester.add_suite(TestFlow::new());
+    tester.add_suite(TestFlow::always_50());
     tester.run().await?;
     Ok(())
 }

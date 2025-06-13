@@ -18,7 +18,7 @@ pub(crate) struct TestSuite {
     crate_name: syn::Ident,
     suite_name: syn::Lit,
     struct_ty_name: syn::Ident,
-    constructor: Constructor,
+    constructors: Vec<Constructor>,
     hooks: Hooks,
     test_cases: Vec<TestCase>,
     cleaned_items: Vec<ImplItem>,
@@ -43,7 +43,7 @@ impl TestSuite {
     pub fn from_impl(suite_name: syn::Lit, input: syn::ItemImpl) -> syn::Result<Self> {
         let struct_ty_name = Self::struct_ty_name(&input)?;
 
-        let mut constructor = None;
+        let mut constructors = vec![];
         let mut hooks = Hooks::new();
         let mut test_cases = vec![];
 
@@ -77,8 +77,10 @@ impl TestSuite {
                         .expect("Ident must be present")
                         .to_string();
                     if ident == Constructor::ID {
-                        let constructor_obj = Constructor::new(method.clone())?;
-                        constructor = Some(constructor_obj);
+                        let constructor_obj = Constructor::new(method.clone(), &attr)?;
+                        constructors.push(constructor_obj);
+                        // Constructor methods are not added to cleaned_items.
+                        continue;
                     } else if ident == TestCase::ID {
                         let test_case = TestCase::new(method.clone(), &attr)?;
                         test_cases.push(test_case);
@@ -94,9 +96,25 @@ impl TestSuite {
             }
         }
 
-        let constructor = constructor.unwrap_or_else(|| {
-            panic!("A test suite must have a constructor method annotated with #[constructor]");
-        });
+        match constructors.len() {
+            0 => {
+                return Err(syn::Error::new(
+                    input.span(),
+                    "Test suite must have at least one constructor method",
+                ));
+            }
+            1 => {}
+            _ => {
+                // Ensure that there is at most one constructor without name.
+                if let Some(constructor) = constructors.iter().filter(|&c| c.name.is_none()).nth(1)
+                {
+                    return Err(syn::Error::new(
+                        constructor.constructor_fn_name.span(),
+                        "Test suite must have at most one constructor without a name",
+                    ));
+                }
+            }
+        }
 
         let crate_name = quote::format_ident!("e2e");
 
@@ -104,7 +122,7 @@ impl TestSuite {
             input,
             crate_name,
             suite_name,
-            constructor,
+            constructors,
             hooks,
             struct_ty_name,
             test_cases,
@@ -113,13 +131,10 @@ impl TestSuite {
     }
 
     fn render_test_cases(&self) -> (Vec<TokenStream2>, Vec<TokenStream2>) {
-        let crate_name = &self.crate_name;
-        let struct_ty_name = &self.struct_ty_name;
-        let test_cases = &self.test_cases;
         let mut test_case_code = Vec::new();
         let mut test_case_objects = Vec::new();
-        for test_case in test_cases.iter() {
-            let (test_case, test_object) = test_case.render(struct_ty_name, crate_name);
+        for test_case in self.test_cases.iter() {
+            let (test_case, test_object) = test_case.render(&self.struct_ty_name, &self.crate_name);
             test_case_code.push(test_case);
             test_case_objects.push(test_object);
         }
@@ -127,58 +142,25 @@ impl TestSuite {
         (test_case_code, test_case_objects)
     }
 
-    fn render_factory(&self) -> TokenStream2 {
-        let suite_name = &self.suite_name;
-        let crate_name = &self.crate_name;
-        let struct_ty_name = &self.struct_ty_name;
-        let config_ty_name = &self.constructor.config_ty_name;
-        let constructor_fn_name = &self.constructor.constructor_fn_name;
-
-        let factory_name = quote::format_ident!("{}Factory", struct_ty_name);
-
-        quote! {
-            struct #factory_name;
-
-            impl #struct_ty_name {
-                pub fn factory() -> Box<dyn #crate_name::TestSuiteFactory<#config_ty_name>> {
-                    Box::new(#factory_name)
-                }
-            }
-
-            #[#crate_name::__private_reexports::async_trait]
-            impl #crate_name::TestSuiteFactory<#config_ty_name> for #factory_name {
-                fn name(&self) -> String {
-                    #suite_name.to_string()
-                }
-
-                async fn create_suite(&self, config: &#config_ty_name) -> anyhow::Result<Box<dyn #crate_name::TestSuite>> {
-                    let self_ = #struct_ty_name::#constructor_fn_name(config).await?;
-                    Ok(Box::new(self_))
-                }
-            }
-
-            impl std::fmt::Debug for #factory_name {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{}", <Self as #crate_name::TestSuiteFactory<#config_ty_name>>::name(self))
-                }
-            }
+    fn render_factories(&self) -> Vec<TokenStream2> {
+        let mut factories = Vec::new();
+        for constructor in self.constructors.iter() {
+            let factory =
+                constructor.render(&self.suite_name, &self.crate_name, &self.struct_ty_name);
+            factories.push(factory);
         }
+        factories
     }
 
     fn render_test_suite(&self, test_case_objects: Vec<TokenStream2>) -> TokenStream2 {
         let crate_name = &self.crate_name;
         let struct_ty_name = &self.struct_ty_name;
-        let suite_name = &self.suite_name;
 
         let hooks = self.hooks.render(struct_ty_name);
 
         quote! {
             #[#crate_name::__private_reexports::async_trait]
             impl #crate_name::TestSuite for #struct_ty_name {
-                fn name(&self) -> String {
-                    #suite_name.to_string()
-                }
-
                 fn tests(&self) -> Vec<Box<dyn #crate_name::Test>> {
                     vec![
                         #(#test_case_objects),*
@@ -191,7 +173,7 @@ impl TestSuite {
     }
 
     pub fn render(self) -> TokenStream2 {
-        let factory = self.render_factory();
+        let factories = self.render_factories();
         let (test_case_code, test_case_objects) = self.render_test_cases();
         let test_suite = self.render_test_suite(test_case_objects);
 
@@ -203,7 +185,7 @@ impl TestSuite {
         quote! {
             #cleaned_impl
 
-            #factory
+            #(#factories)*
 
             #test_suite
 

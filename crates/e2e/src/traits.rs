@@ -16,8 +16,6 @@ impl<C: std::fmt::Debug + 'static> fmt::Debug for Box<dyn TestSuiteFactory<C>> {
 
 #[async_trait::async_trait]
 pub trait TestSuite: Send + Sync + 'static {
-    fn name(&self) -> String;
-
     fn tests(&self) -> Vec<Box<dyn Test>>;
 
     async fn before_all(&self) -> anyhow::Result<()> {
@@ -34,12 +32,6 @@ pub trait TestSuite: Send + Sync + 'static {
 
     async fn after_all(&self) -> anyhow::Result<()> {
         Ok(())
-    }
-}
-
-impl fmt::Debug for dyn TestSuite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
     }
 }
 

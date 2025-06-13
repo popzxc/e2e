@@ -119,6 +119,7 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
                 .map_err(TestError::CreateSuite);
             self.reporter
                 .on_test_suite_creation_finished(&name, suite_result.as_ref().err());
+            self.reporter.on_test_suite_start(&name);
             match suite_result {
                 Ok(suite) => {
                     self.run_suite(suite, &mut result).await;
@@ -136,8 +137,6 @@ impl<C: std::fmt::Debug + 'static> Tester<C> {
     }
 
     async fn run_suite(&mut self, suite: Box<dyn TestSuite>, result: &mut TestSuiteResult) {
-        self.reporter.on_test_suite_start(&suite.name());
-
         if let Err(err) = suite.before_all().await.map_err(TestError::BeforeAll) {
             result.set_error(err);
             return;
