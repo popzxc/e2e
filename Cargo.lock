@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "e2e"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "e2e-macro"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proc-macro2",
  "quote",
