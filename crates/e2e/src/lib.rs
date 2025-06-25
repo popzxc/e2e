@@ -1,6 +1,7 @@
 use std::panic::AssertUnwindSafe;
 
 pub use self::{
+    config::TestRunnerConfiguration,
     reporter::{Reporter, console::ConsoleReporter},
     traits::{Test, TestSuite, TestSuiteFactory},
 };
@@ -8,6 +9,7 @@ pub use self::{
 pub use e2e_macro::test_suite;
 use futures::FutureExt;
 
+mod config;
 mod reporter;
 mod traits;
 
@@ -82,9 +84,11 @@ pub fn init() {
 }
 
 #[derive(Debug)]
-pub struct Tester<C: std::fmt::Debug + 'static> {
-    /// Configuration for the tester.
+pub struct TestRunner<C: std::fmt::Debug + 'static> {
+    /// Configuration for the test suites.
     config: C,
+    /// Configuration for the test runner.
+    runner_config: TestRunnerConfiguration,
     /// List of test suites to run.
     test_suites: Vec<Box<dyn TestSuiteFactory<C>>>,
     /// Reporter for test events.
@@ -93,14 +97,20 @@ pub struct Tester<C: std::fmt::Debug + 'static> {
     results: Vec<TestSuiteResult>,
 }
 
-impl<C: std::fmt::Debug + 'static> Tester<C> {
+impl<C: std::fmt::Debug + 'static> TestRunner<C> {
     pub fn new(config: C) -> Self {
         Self {
             config,
+            runner_config: Default::default(),
             test_suites: Vec::new(),
             reporter: Box::new(ConsoleReporter::new()),
             results: Vec::new(),
         }
+    }
+
+    pub fn with_runner_config(mut self, config: TestRunnerConfiguration) -> Self {
+        self.runner_config = config;
+        self
     }
 
     pub fn add_suite(&mut self, factory: Box<dyn TestSuiteFactory<C>>) {

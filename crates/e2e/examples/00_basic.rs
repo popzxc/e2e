@@ -1,3 +1,4 @@
+use clap::Parser;
 use e2e::test_suite;
 
 #[derive(Debug, Clone)]
@@ -64,12 +65,20 @@ impl TestFlow {
     }
 }
 
+#[derive(Debug, Parser)]
+struct Cli {
+    #[clap(flatten)]
+    runner_config: e2e::TestRunnerConfiguration,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     e2e::init();
 
+    let cli = Cli::parse();
+
     let config = TestConfig { value: 42 };
-    let mut tester = e2e::Tester::new(config);
+    let mut tester = e2e::TestRunner::new(config).with_runner_config(cli.runner_config);
     tester.add_suite(TestFlow::new());
     tester.add_suite(TestFlow::always_50());
     tester.run().await?;

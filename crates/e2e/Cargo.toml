@@ -17,6 +17,8 @@ thiserror.workspace = true
 e2e-macro.workspace = true
 tracing.workspace = true
 console.workspace = true
+clap.workspace = true
+regex.workspace = true
 futures.workspace = true
 
 [dev-dependencies]

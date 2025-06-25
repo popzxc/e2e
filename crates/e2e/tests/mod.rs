@@ -29,7 +29,7 @@ impl TestFlow {
 #[tokio::test]
 async fn run_test() {
     let config = TestConfig;
-    let mut tester = e2e::Tester::new(config);
+    let mut tester = e2e::TestRunner::new(config);
     tester.add_suite(TestFlow::new());
     tester.run().await.unwrap();
 }
