@@ -7,6 +7,7 @@ use crate::{TestError, TestSuiteResult};
 pub trait Reporter {
     fn name(&self) -> &'static str;
     fn on_test_suite_creation_started(&mut self, name: &str);
+    fn on_test_suite_ignored(&mut self, name: &str);
     fn on_test_suite_creation_finished(&mut self, name: &str, error: Option<&TestError>);
     fn on_test_suite_start(&mut self, name: &str);
     fn on_test_suite_end(&mut self, name: &str, result: &TestSuiteResult);

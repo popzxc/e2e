@@ -120,6 +120,16 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
     pub async fn run(mut self) -> anyhow::Result<()> {
         for factory in &std::mem::take(&mut self.test_suites) {
             let name = factory.name();
+            if self
+                .runner_config
+                .test_suite_filter
+                .as_ref()
+                .is_some_and(|filter| !filter.is_match(&name))
+            {
+                self.reporter.on_test_suite_ignored(&name);
+                continue;
+            }
+
             let mut result = TestSuiteResult::new(name.clone());
 
             self.reporter.on_test_suite_creation_started(&name);
@@ -157,7 +167,16 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
 
         for test in suite.tests() {
             let mut test_result = TestResult::new(test.name());
-            if test.ignore() || (has_only && !test.only()) {
+
+            let mut ignore = test.ignore() && !self.runner_config.run_ignored;
+            ignore |= has_only && !test.only();
+            ignore |= self
+                .runner_config
+                .test_case_filter
+                .as_ref()
+                .is_some_and(|filter| !filter.is_match(&test.name()));
+
+            if ignore {
                 test_result.set_ignored(true);
                 self.reporter.on_test_ignored(&test.name());
                 result.add_test_result(test_result);
@@ -172,21 +191,36 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
 
             self.reporter.on_test_start(&test.name());
 
-            let test_run_result = match AssertUnwindSafe(test.run()).catch_unwind().await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(err)) => Err(TestError::Test(err)),
-                Err(err) => {
-                    // If the test panics, we convert it to a TestError.
-                    let err = if let Some(err) = err.downcast_ref::<String>() {
-                        anyhow::anyhow!("Test panicked with message: {}", err)
-                    } else if let Some(err) = err.downcast_ref::<&str>() {
-                        anyhow::anyhow!("Test panicked with message: {}", err)
-                    } else {
-                        anyhow::anyhow!("Test panicked with an unknown error type")
-                    };
-                    Err(TestError::Test(err))
-                }
-            };
+            // Handle panics in gests
+            let panic_handling_future =
+                AssertUnwindSafe(test.run())
+                    .catch_unwind()
+                    .map(|res| match res {
+                        Ok(res) => res,
+                        Err(panic_err) => {
+                            let err = if let Some(err) = panic_err.downcast_ref::<String>() {
+                                anyhow::format_err!("Test panicked with message: {}", err)
+                            } else if let Some(err) = panic_err.downcast_ref::<&str>() {
+                                anyhow::format_err!("Test panicked with message: {}", err)
+                            } else {
+                                anyhow::format_err!("Test panicked with an unknown error type")
+                            };
+                            Err(err)
+                        }
+                    });
+
+            let test_future =
+                tokio::time::timeout(self.runner_config.timeout(), panic_handling_future).map(
+                    |res| match res {
+                        Ok(res) => res,
+                        Err(_) => Err(anyhow::format_err!(
+                            "Test timed out after {:?}",
+                            self.runner_config.timeout()
+                        )),
+                    },
+                );
+
+            let test_run_result = test_future.await.map_err(TestError::Test);
 
             self.reporter
                 .on_test_end(&test.name(), test_run_result.as_ref().err());
