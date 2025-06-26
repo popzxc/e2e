@@ -14,6 +14,9 @@ pub struct TestRunnerConfiguration {
     /// Timeout for each test case.
     #[clap(long)]
     pub(crate) timeout_ms: Option<u64>,
+    /// Stop after the first failed test.
+    #[clap(long)]
+    pub(crate) fail_fast: bool,
 }
 
 impl TestRunnerConfiguration {
@@ -41,5 +44,10 @@ impl TestRunnerConfiguration {
 
     pub fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms.unwrap_or(Self::DEFAULT_TIMEOUT_MS))
+    }
+
+    pub fn with_fail_fast(mut self, fail_fast: bool) -> Self {
+        self.fail_fast = fail_fast;
+        self
     }
 }
