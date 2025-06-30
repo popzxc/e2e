@@ -47,7 +47,7 @@ impl TestResult {
 #[non_exhaustive]
 pub struct TestSuiteResult {
     pub name: String,
-    passed: bool,
+    pub passed: bool,
     pub tests: Vec<TestResult>,
     pub error: Option<TestError>,
 }
@@ -150,10 +150,84 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
             }
             self.reporter.on_test_suite_end(&name, &result);
 
+            let passed = result.passed;
             self.results.push(result);
+
+            if !passed && self.runner_config.fail_fast {
+                break;
+            }
         }
 
         Ok(())
+    }
+
+    async fn run_test(
+        &mut self,
+        suite: &dyn TestSuite,
+        test: &dyn Test,
+        ignore: bool,
+    ) -> TestResult {
+        let mut test_result = TestResult::new(test.name());
+
+        if ignore {
+            test_result.set_ignored(true);
+            self.reporter.on_test_ignored(&test.name());
+            return test_result;
+        }
+
+        if let Err(err) = suite.before_each().await.map_err(TestError::BeforeEach) {
+            test_result.set_error(err);
+            return test_result;
+        }
+
+        self.reporter.on_test_start(&test.name());
+
+        // Handle panics in gests
+        let panic_handling_future =
+            AssertUnwindSafe(test.run())
+                .catch_unwind()
+                .map(|res| match res {
+                    Ok(res) => res,
+                    Err(panic_err) => {
+                        let err = if let Some(err) = panic_err.downcast_ref::<String>() {
+                            anyhow::format_err!("Test panicked with message: {}", err)
+                        } else if let Some(err) = panic_err.downcast_ref::<&str>() {
+                            anyhow::format_err!("Test panicked with message: {}", err)
+                        } else {
+                            anyhow::format_err!("Test panicked with an unknown error type")
+                        };
+                        Err(err)
+                    }
+                });
+
+        let test_future = tokio::time::timeout(self.runner_config.timeout(), panic_handling_future)
+            .map(|res| match res {
+                Ok(res) => res,
+                Err(_) => Err(anyhow::format_err!(
+                    "Test timed out after {:?}",
+                    self.runner_config.timeout()
+                )),
+            });
+
+        let test_run_result = test_future.await.map_err(TestError::Test);
+
+        self.reporter
+            .on_test_end(&test.name(), test_run_result.as_ref().err());
+
+        if let Err(err) = test_run_result {
+            test_result.set_error(err);
+            // Do not run `after_each` if failing fast.
+            if self.runner_config.fail_fast {
+                return test_result;
+            }
+        }
+
+        // TODO: do not override test error
+        if let Err(err) = suite.after_each().await.map_err(TestError::AfterEach) {
+            test_result.set_error(err);
+        }
+
+        test_result
     }
 
     async fn run_suite(&mut self, suite: Box<dyn TestSuite>, result: &mut TestSuiteResult) {
@@ -166,8 +240,6 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
         let has_only = suite.tests().iter().any(|test| test.only());
 
         for test in suite.tests() {
-            let mut test_result = TestResult::new(test.name());
-
             let mut ignore = test.ignore() && !self.runner_config.run_ignored;
             ignore |= has_only && !test.only();
             ignore |= self
@@ -176,63 +248,12 @@ impl<C: std::fmt::Debug + 'static> TestRunner<C> {
                 .as_ref()
                 .is_some_and(|filter| !filter.is_match(&test.name()));
 
-            if ignore {
-                test_result.set_ignored(true);
-                self.reporter.on_test_ignored(&test.name());
-                result.add_test_result(test_result);
-                continue;
-            }
-
-            if let Err(err) = suite.before_each().await.map_err(TestError::BeforeEach) {
-                test_result.set_error(err);
-                result.add_test_result(test_result);
-                continue;
-            }
-
-            self.reporter.on_test_start(&test.name());
-
-            // Handle panics in gests
-            let panic_handling_future =
-                AssertUnwindSafe(test.run())
-                    .catch_unwind()
-                    .map(|res| match res {
-                        Ok(res) => res,
-                        Err(panic_err) => {
-                            let err = if let Some(err) = panic_err.downcast_ref::<String>() {
-                                anyhow::format_err!("Test panicked with message: {}", err)
-                            } else if let Some(err) = panic_err.downcast_ref::<&str>() {
-                                anyhow::format_err!("Test panicked with message: {}", err)
-                            } else {
-                                anyhow::format_err!("Test panicked with an unknown error type")
-                            };
-                            Err(err)
-                        }
-                    });
-
-            let test_future =
-                tokio::time::timeout(self.runner_config.timeout(), panic_handling_future).map(
-                    |res| match res {
-                        Ok(res) => res,
-                        Err(_) => Err(anyhow::format_err!(
-                            "Test timed out after {:?}",
-                            self.runner_config.timeout()
-                        )),
-                    },
-                );
-
-            let test_run_result = test_future.await.map_err(TestError::Test);
-
-            self.reporter
-                .on_test_end(&test.name(), test_run_result.as_ref().err());
-            if let Err(err) = test_run_result {
-                test_result.set_error(err);
-            }
-
-            // TODO: do not override test error
-            if let Err(err) = suite.after_each().await.map_err(TestError::AfterEach) {
-                test_result.set_error(err);
-            }
+            let test_result = self.run_test(&*suite, &*test, ignore).await;
+            let test_passed = test_result.passed();
             result.add_test_result(test_result);
+            if !test_passed && self.runner_config.fail_fast {
+                return;
+            }
         }
 
         if let Err(err) = suite.after_all().await.map_err(TestError::AfterAll) {
